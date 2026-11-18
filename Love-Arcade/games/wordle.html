@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Love Wordle 🔤</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="container">
+    <a class="btn small back-btn" href="../index.html">← Back to Arcade</a>
+
+    <div class="glass">
+      <h1>Love Wordle 🔤</h1>
+      <p class="subtitle">Guess the secret 5-letter word in 6 tries.</p>
+
+      <div class="stats">
+        <div class="pill">Word <span id="wNum">1</span> / <span id="wTotal">3</span></div>
+        <div class="pill">Wins: <span id="wins">0</span></div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+      <div class="board" id="board"></div>
+      <div class="keyboard" id="keyboard"></div>
+
+      <div class="secret hidden" id="secret">
+        <h3>💌 Secret Msg Unlocked!</h3>
+        <p id="secretText"></p>
+        <button class="btn small" id="nextBtn" style="margin-top:12px;">Next Word 💕</button>
+      </div>
+
+      <div class="center hidden" id="loseBox" style="margin-top:14px;">
+        <p class="subtitle">The word was <b id="answerReveal"></b></p>
+        <button class="btn small" id="retryBtn">Try Again 🔁</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== CUSTOMIZE: 5-letter words + a secret message for each ===== */
+    const WORDS = [
+      { word: "PINKY", message: "Message #1: Our story started with a tiny hello, and it became my favorite chapter. 💖" },
+      { word: "CUTIE", message: "Message #2: Every day with you is my favorite day. You make regular moments magical. 🌸" },
+      { word: "HEART", message: "Message #3: You hold mine, and I'm holding yours. Forever. 💍" }
+    ];
+    /* ================================================================ */
+
+    // Valid guesses: any 5 letters are accepted (keeps the game friendly, no dictionary needed)
+    const ROWS = 6, COLS = 5;
+
+    function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+    const boardEl = document.getElementById("board");
+    const kbEl = document.getElementById("keyboard");
+    const toastEl = document.getElementById("toast");
+    const secretEl = document.getElementById("secret");
+    const loseBox = document.getElementById("loseBox");
+    const winsEl = document.getElementById("wins");
+
+    document.getElementById("wTotal").textContent = WORDS.length;
+    winsEl.textContent = lsGet("wordleWins", "0");
+
+    let wordIndex = parseInt(lsGet("wordleIndex", "0"), 10) || 0;
+    if (wordIndex >= WORDS.length) wordIndex = 0;
+
+    let target = "";
+    let row = 0, col = 0;
+    let grid = [];
+    let over = false;
+    let keyState = {};
+
+    function buildBoard() {
+      boardEl.innerHTML = "";
+      grid = [];
+      for (let r = 0; r < ROWS; r++) {
+        const rowEl = document.createElement("div");
+        rowEl.className = "row";
+        const tiles = [];
+        for (let c = 0; c < COLS; c++) {
+          const t = document.createElement("div");
+          t.className = "tile";
+          rowEl.appendChild(t);
+          tiles.push(t);
+        }
+        boardEl.appendChild(rowEl);
+        grid.push(tiles);
+      }
+    }
+
+    function buildKeyboard() {
+      kbEl.innerHTML = "";
+      const layout = ["QWERTYUIOP", "ASDFGHJKL", "ENTER ZXCVBNM BACK"];
+      layout.forEach(line => {
+        const r = document.createElement("div");
+        r.className = "key-row";
+        line.split(" ").join("|").split("").length; // no-op for clarity
+        const keys = line.includes(" ") ? ["ENTER", ..."ZXCVBNM".split(""), "BACK"] : line.split("");
+        keys.forEach(k => {
+          const b = document.createElement("button");
+          b.className = "key" + (k.length > 1 ? " wide" : "");
+          b.dataset.key = k;
+          b.textContent = k === "BACK" ? "⌫" : k;
+          b.addEventListener("click", () => handleKey(k));
+          r.appendChild(b);
+        });
+        kbEl.appendChild(r);
+      });
+    }
+
+    function toast(msg, ms) {
+      toastEl.textContent = msg;
+      if (ms) setTimeout(() => { if (toastEl.textContent === msg) toastEl.textContent = ""; }, ms);
+    }
+
+    function newGame() {
+      target = WORDS[wordIndex].word.toUpperCase();
+      row = 0; col = 0; over = false; keyState = {};
+      document.getElementById("wNum").textContent = wordIndex + 1;
+      secretEl.classList.add("hidden");
+      loseBox.classList.add("hidden");
+      toast("");
+      buildBoard();
+      buildKeyboard();
+    }
+
+    function handleKey(k) {
+      if (over) return;
+      if (k === "ENTER") return submit();
+      if (k === "BACK") {
+        if (col > 0) { col--; grid[row][col].textContent = ""; grid[row][col].classList.remove("filled"); }
+        return;
+      }
+      if (/^[A-Z]$/.test(k) && col < COLS) {
+        grid[row][col].textContent = k;
+        grid[row][col].classList.add("filled");
+        col++;
+      }
+    }
+
+    function submit() {
+      if (col < COLS) { toast("Not enough letters", 1200); return; }
+      const guess = grid[row].map(t => t.textContent).join("");
+      const result = evaluate(guess, target);
+
+      result.forEach((state, i) => {
+        grid[row][i].classList.remove("filled");
+        grid[row][i].classList.add(state);
+        updateKey(guess[i], state);
+      });
+
+      if (guess === target) return win();
+      row++; col = 0;
+      if (row >= ROWS) lose();
+    }
+
+    function evaluate(guess, answer) {
+      const res = Array(COLS).fill("absent");
+      const counts = {};
+      for (let i = 0; i < COLS; i++) {
+        if (guess[i] === answer[i]) res[i] = "correct";
+        else counts[answer[i]] = (counts[answer[i]] || 0) + 1;
+      }
+      for (let i = 0; i < COLS; i++) {
+        if (res[i] === "correct") continue;
+        if (counts[guess[i]] > 0) { res[i] = "present"; counts[guess[i]]--; }
+      }
+      return res;
+    }
+
+    function updateKey(letter, state) {
+      const rank = { absent: 1, present: 2, correct: 3 };
+      if (!keyState[letter] || rank[state] > rank[keyState[letter]]) {
+        keyState[letter] = state;
+        const el = kbEl.querySelector('[data-key="' + letter + '"]');
+        if (el) {
+          el.classList.remove("absent", "present", "correct");
+          el.classList.add(state);
+        }
+      }
+    }
+
+    function win() {
+      over = true;
+      const wins = (parseInt(lsGet("wordleWins", "0"), 10) || 0) + 1;
+      lsSet("wordleWins", String(wins));
+      winsEl.textContent = wins;
+      toast("You got it! 🎉");
+      document.getElementById("secretText").textContent = WORDS[wordIndex].message;
+      secretEl.classList.remove("hidden");
+    }
+
+    function lose() {
+      over = true;
+      document.getElementById("answerReveal").textContent = target;
+      loseBox.classList.remove("hidden");
+    }
+
+    document.getElementById("nextBtn").addEventListener("click", () => {
+      wordIndex = (wordIndex + 1) % WORDS.length;
+      lsSet("wordleIndex", String(wordIndex));
+      newGame();
+    });
+    document.getElementById("retryBtn").addEventListener("click", newGame);
+
+    // Physical keyboard
+    window.addEventListener("keydown", e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "Enter") handleKey("ENTER");
+      else if (e.key === "Backspace") handleKey("BACK");
+      else if (/^[a-zA-Z]$/.test(e.key)) handleKey(e.key.toUpperCase());
+    });
+
+    newGame();
+  </script>
+</body>
+</html>

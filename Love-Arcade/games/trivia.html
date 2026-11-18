@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relationship Trivia 🧠</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="container">
+    <a class="btn small back-btn" href="../index.html">← Back to Arcade</a>
+
+    <div class="glass">
+      <h1>Relationship Trivia 🧠</h1>
+      <p class="subtitle">Get every answer right to earn something special.</p>
+
+      <div class="stats">
+        <div class="pill">Question <span id="qNum">1</span> / <span id="qTotal">3</span></div>
+        <div class="pill">Score: <span id="score">0</span></div>
+      </div>
+
+      <div id="quiz">
+        <div class="question" id="question"></div>
+        <div class="options" id="options"></div>
+      </div>
+
+      <div class="center hidden" id="result">
+        <h2 id="resultTitle"></h2>
+        <p class="subtitle" id="resultText"></p>
+        <button class="btn" id="retryBtn">Try Again 🔁</button>
+      </div>
+
+      <div class="certificate hidden" id="certificate">
+        <div class="seal">🏅</div>
+        <h2>Official Best Girlfriend Certificate</h2>
+        <p>This certifies that</p>
+        <h2 id="certName">My Pink</h2>
+        <p>is hereby awarded the title of</p>
+        <h3 style="color:#8a1c4a;text-shadow:none;">World's Best Girlfriend 💖</h3>
+        <p id="certMessage" style="margin-top:12px;"></p>
+        <p style="margin-top:10px;font-size:.85rem;">Signed with love, forever and always.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== CUSTOMIZE: your questions, options and the index (0-3) of the correct answer ===== */
+    const HER_NAME = "My Pink";
+    const SECRET_MESSAGE = "You got every single answer right, just like you got every single piece of my heart. I love you! 💖";
+    const QUESTIONS = [
+      {
+        q: "Where did we have our first date?",
+        options: ["The cinema", "Deadlock secret bedroom", "The park", "The beach"],
+        answer: 1
+      },
+      {
+        q: "What is my favorite thing about you?",
+        options: ["Your smile", "Your laugh", "Your kindness", "All of the above"],
+        answer: 3
+      },
+      {
+        q: "What is our favorite thing to do together?",
+        options: ["Watch movies", "Talk", "Meowing", "Play games"],
+        answer: 1
+      }
+    ];
+    /* ====================================================================================== */
+
+    document.getElementById("certName").textContent = HER_NAME;
+    document.getElementById("certMessage").textContent = SECRET_MESSAGE;
+    document.getElementById("qTotal").textContent = QUESTIONS.length;
+
+    function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+    const qNumEl = document.getElementById("qNum");
+    const scoreEl = document.getElementById("score");
+    const questionEl = document.getElementById("question");
+    const optionsEl = document.getElementById("options");
+    const quizEl = document.getElementById("quiz");
+    const resultEl = document.getElementById("result");
+    const certEl = document.getElementById("certificate");
+
+    let current = 0;
+    let score = 0;
+    let locked = false;
+
+    // Show certificate right away if already earned
+    if (lsGet("triviaUnlocked", "false") === "true") {
+      certEl.classList.remove("hidden");
+    }
+
+    function showQuestion() {
+      locked = false;
+      const item = QUESTIONS[current];
+      qNumEl.textContent = current + 1;
+      questionEl.textContent = item.q;
+      optionsEl.innerHTML = "";
+      item.options.forEach((opt, i) => {
+        const b = document.createElement("button");
+        b.className = "option";
+        b.textContent = opt;
+        b.addEventListener("click", () => choose(i, b));
+        optionsEl.appendChild(b);
+      });
+    }
+
+    function choose(i, btn) {
+      if (locked) return;
+      locked = true;
+      const item = QUESTIONS[current];
+      const buttons = optionsEl.querySelectorAll(".option");
+      buttons.forEach(b => b.disabled = true);
+
+      if (i === item.answer) {
+        btn.classList.add("correct");
+        score++;
+        scoreEl.textContent = score;
+      } else {
+        btn.classList.add("wrong");
+        buttons[item.answer].classList.add("correct");
+      }
+
+      setTimeout(() => {
+        current++;
+        if (current < QUESTIONS.length) showQuestion();
+        else finish();
+      }, 1100);
+    }
+
+    function finish() {
+      quizEl.classList.add("hidden");
+      resultEl.classList.remove("hidden");
+
+      const prevBest = parseInt(lsGet("triviaBest", "0"), 10) || 0;
+      if (score > prevBest) lsSet("triviaBest", String(score));
+
+      if (score === QUESTIONS.length) {
+        lsSet("triviaUnlocked", "true");
+        document.getElementById("resultTitle").textContent = "Perfect score! 🎉";
+        document.getElementById("resultText").textContent = "You know me so well. Your certificate is below!";
+        certEl.classList.remove("hidden");
+      } else {
+        document.getElementById("resultTitle").textContent = "You scored " + score + " / " + QUESTIONS.length;
+        document.getElementById("resultText").textContent = "So close! Get 100% to earn the certificate.";
+      }
+    }
+
+    document.getElementById("retryBtn").addEventListener("click", () => {
+      current = 0;
+      score = 0;
+      scoreEl.textContent = 0;
+      resultEl.classList.add("hidden");
+      quizEl.classList.remove("hidden");
+      showQuestion();
+    });
+
+    showQuestion();
+  </script>
+</body>
+</html>

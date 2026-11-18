@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Love Arcade 💖</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Softlock styling for Open When envelopes */
+    .envelope.locked {
+      opacity: 0.55;
+      filter: grayscale(0.45);
+      cursor: not-allowed;
+      position: relative;
+    }
+    .envelope.locked::after {
+      content: " 🔒";
+    }
+    .envelopes-hint {
+      text-align: center;
+      font-size: 0.9rem;
+      opacity: 0.85;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="hero glass">
+      <h1>Welcome, <span id="herName">My Pink</span> 💖</h1>
+      <p class="tag">I built you a little arcade, just for us.</p>
+      <h3>Together for</h3>
+      <div class="counter" id="counter">
+        <div class="unit"><b id="cDays">0</b><span>Days</span></div>
+        <div class="unit"><b id="cHours">0</b><span>Hours</span></div>
+        <div class="unit"><b id="cMins">0</b><span>Minutes</span></div>
+        <div class="unit"><b id="cSecs">0</b><span>Seconds</span></div>
+      </div>
+    </header>
+
+    <h2>🎮 Game Cards</h2>
+    <section class="grid">
+      <a class="game-card" href="games/catch-hearts.html">
+        <span class="icon">💗</span>
+        <h3>Catch the Hearts</h3>
+        <div class="best" id="bestHearts">Best: 0</div>
+        <span class="badge locked" id="badgeHearts">Locked 🔒</span>
+      </a>
+      <a class="game-card" href="games/trivia.html">
+        <span class="icon">🧠</span>
+        <h3>Relationship Trivia</h3>
+        <div class="best" id="bestTrivia">Best: 0 / 3</div>
+        <span class="badge locked" id="badgeTrivia">Locked 🔒</span>
+      </a>
+      <a class="game-card" href="games/wordle.html">
+        <span class="icon">🔤</span>
+        <h3>Love Wordle</h3>
+        <div class="best" id="bestWordle">Wins: 0</div>
+        <span class="badge locked" id="badgeWordle">Locked 🔒</span>
+      </a>
+      <a class="game-card" href="games/memory.html">
+        <span class="icon">🃏</span>
+        <h3>Memory Match</h3>
+        <div class="best" id="bestMemory">Best: -- moves</div>
+        <span class="badge locked" id="badgeMemory">Locked 🔒</span>
+      </a>
+    </section>
+
+    <section class="glass">
+      <h2>💌 Open When...</h2>
+      <p class="envelopes-hint" id="envelopesHint"></p>
+      <div class="envelopes">
+        <button class="envelope" data-key="miss"><span class="e">💌</span>Open when you miss me</button>
+        <button class="envelope" data-key="stressed"><span class="e">🌷</span>Open when you're stressed</button>
+        <button class="envelope" data-key="bored"><span class="e">🎈</span>Open when you're bored</button>
+      </div>
+    </section>
+
+    <footer>Made with 💖 just for you</footer>
+  </div>
+
+  <div class="modal hidden" id="modal">
+    <div class="card">
+      <h2 id="modalTitle"></h2>
+      <p id="modalText"></p>
+      <button class="btn small" id="modalClose">Close 💕</button>
+    </div>
+  </div>
+
+  <script>
+    /* ===== CUSTOMIZE: edit these values ===== */
+    const HER_NAME = "My Pink";
+    const START_DATE = "2026-11-04";            // YYYY-MM-DD (counts from midnight, her local time)
+    const NOTES = {
+      miss:     { title: "When you miss me 💌",     text: "Close your eyes and think of my hug. I'm always just an alarm away XD, and I'm missing you right back." },
+      stressed: { title: "When you're stressed 🌷", text: "Breathe in, breathe out. You are strong, and I'm so proud of you. You've got this." },
+      bored:    { title: "When you're bored 🎈",    text: "Challenge accepted: beat my high score in every game here. Loser owes the winner picture" }
+    };
+    /* ======================================= */
+
+    document.getElementById("herName").textContent = HER_NAME;
+
+    // Live counter
+    const start = new Date(START_DATE + "T00:00:00");
+    function tick() {
+      let diff = Math.max(0, Date.now() - start.getTime());
+      const secs = Math.floor(diff / 1000);
+      const days = Math.floor(secs / 86400);
+      const hours = Math.floor((secs % 86400) / 3600);
+      const mins = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      document.getElementById("cDays").textContent = days;
+      document.getElementById("cHours").textContent = hours;
+      document.getElementById("cMins").textContent = mins;
+      document.getElementById("cSecs").textContent = s;
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    // Safe localStorage read
+    function ls(key, fallback) {
+      try {
+        const v = localStorage.getItem(key);
+        return v === null ? fallback : v;
+      } catch (e) { return fallback; }
+    }
+    function setBadge(id, unlocked) {
+      const el = document.getElementById(id);
+      if (unlocked) {
+        el.textContent = "Secret Unlocked 💖";
+        el.className = "badge unlocked";
+      } else {
+        el.textContent = "Locked 🔒";
+        el.className = "badge locked";
+      }
+    }
+
+    // Track unlock state of each game
+    const gamesStatus = [
+      { name: "Catch the Hearts",    won: ls("heartsUnlocked", "false") === "true" },
+      { name: "Relationship Trivia", won: ls("triviaUnlocked", "false") === "true" },
+      { name: "Love Wordle",         won: parseInt(ls("wordleWins", "0"), 10) > 0 },
+      { name: "Memory Match",        won: ls("memoryUnlocked", "false") === "true" }
+    ];
+
+    // Game cards
+    document.getElementById("bestHearts").textContent = "Best: " + ls("heartsBest", "0");
+    setBadge("badgeHearts", gamesStatus[0].won);
+
+    document.getElementById("bestTrivia").textContent = "Best: " + ls("triviaBest", "0") + " / 3";
+    setBadge("badgeTrivia", gamesStatus[1].won);
+
+    document.getElementById("bestWordle").textContent = "Wins: " + ls("wordleWins", "0");
+    setBadge("badgeWordle", gamesStatus[2].won);
+
+    // Show best Memory Match score across difficulties (or fallback to legacy memoryBest)
+    const memScores = ["memoryBest_easy", "memoryBest_medium", "memoryBest_hard", "memoryBest"]
+      .map(k => parseInt(ls(k, "0"), 10))
+      .filter(n => n > 0);
+    const mb = memScores.length ? Math.min(...memScores) : null;
+    document.getElementById("bestMemory").textContent = "Best: " + (mb ? mb + " moves" : "-- moves");
+    setBadge("badgeMemory", gamesStatus[3].won);
+
+    // Softlock check for Open When envelopes
+    const remainingGames = gamesStatus.filter(g => !g.won);
+    const allGamesWon = remainingGames.length === 0;
+    const hintEl = document.getElementById("envelopesHint");
+    const envelopeBtns = document.querySelectorAll(".envelope");
+
+    if (allGamesWon) {
+      hintEl.textContent = "💖 All games beaten! Your secret letters are unlocked:";
+    } else {
+      const wonCount = gamesStatus.length - remainingGames.length;
+      hintEl.textContent = `🔒 Beat all 4 games to unlock these letters (${wonCount}/4 completed)`;
+      envelopeBtns.forEach(btn => btn.classList.add("locked"));
+    }
+
+    // Envelopes modal
+    const modal = document.getElementById("modal");
+    envelopeBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!allGamesWon) {
+          const missingNames = remainingGames.map(g => g.name).join(", ");
+          document.getElementById("modalTitle").textContent = "Letters Locked 🔒";
+          document.getElementById("modalText").textContent =
+            `Beat all 4 arcade games first to unlock your Open When letters! Still to beat: ${missingNames}.`;
+          modal.classList.remove("hidden");
+          return;
+        }
+
+        const n = NOTES[btn.dataset.key];
+        document.getElementById("modalTitle").textContent = n.title;
+        document.getElementById("modalText").textContent = n.text;
+        modal.classList.remove("hidden");
+      });
+    });
+    document.getElementById("modalClose").addEventListener("click", () => modal.classList.add("hidden"));
+    modal.addEventListener("click", e => { if (e.target === modal) modal.classList.add("hidden"); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") modal.classList.add("hidden"); });
+  </script>
+</body>
+</html>

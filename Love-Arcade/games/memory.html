@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memory Match 🃏</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    /* Minimal helpers for difficulty selector, dynamic columns, and timer states */
+    .difficulty-bar {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .diff-btn {
+      opacity: 0.65;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    .diff-btn.active {
+      opacity: 1;
+      transform: scale(1.05);
+      box-shadow: 0 0 0 2px currentColor;
+    }
+    .pill.warning {
+      color: #ff4d6d;
+      font-weight: bold;
+      animation: pulse 0.8s infinite alternate;
+    }
+    @keyframes pulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.06); }
+    }
+    .game-status {
+      text-align: center;
+      margin-top: 14px;
+      font-weight: bold;
+      color: #ff4d6d;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a class="btn small back-btn" href="../index.html">← Back to Arcade</a>
+
+    <div class="glass">
+      <h1>Memory Match 🃏</h1>
+      <p class="subtitle" id="subtitle">Find all 8 pairs before time runs out to unlock a secret message.</p>
+
+      <!-- Difficulty Selector -->
+      <div class="difficulty-bar" id="difficultyBar">
+        <button class="btn small diff-btn" data-diff="easy">Easy (6 Pairs • 60s)</button>
+        <button class="btn small diff-btn active" data-diff="medium">Medium (8 Pairs • 50s)</button>
+        <button class="btn small diff-btn" data-diff="hard">Hard (12 Pairs • 45s)</button>
+      </div>
+
+      <div class="stats">
+        <div class="pill" id="timerPill">Time: <span id="timer">50</span>s</div>
+        <div class="pill">Moves: <span id="moves">0</span></div>
+        <div class="pill">Pairs: <span id="pairs">0</span> / <span id="totalPairs">8</span></div>
+        <div class="pill">Best: <span id="best">--</span></div>
+      </div>
+
+      <div class="memory-grid" id="grid"></div>
+
+      <div class="game-status hidden" id="statusMsg"></div>
+
+      <div class="center" style="margin-top:16px;">
+        <button class="btn" id="restartBtn">Restart 🔁</button>
+      </div>
+
+      <div class="secret hidden" id="secret">
+        <h3>🎉 Secret Unlocked 💖</h3>
+        <p id="secretText"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== CUSTOMIZE ===== */
+    const SECRET_MESSAGE = "Every pair I find reminds me that I already found my perfect match: you. I love you more than all of these emojis combined! 💖";
+
+    const DIFFICULTIES = {
+      easy: {
+        label: "Easy",
+        pairs: 6,
+        time: 60,
+        cols: 4, // 4x3 grid (12 cards)
+        emojis: ["💖", "🧸", "🍓", "💌", "🎀", "🌸"]
+      },
+      medium: {
+        label: "Medium",
+        pairs: 8,
+        time: 50,
+        cols: 4, // 4x4 grid (16 cards)
+        emojis: ["💖", "🧸", "🍓", "💌", "🎀", "🌸", "💍", "🥂"]
+      },
+      hard: {
+        label: "Hard",
+        pairs: 12,
+        time: 45,
+        cols: 6, // 6x4 grid (24 cards)
+        emojis: ["💖", "🧸", "🍓", "💌", "🎀", "🌸", "💍", "🥂", "🦋", "🍫", "🌹", "✨"]
+      }
+    };
+    /* ===================== */
+
+    function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+    const gridEl = document.getElementById("grid");
+    const subtitleEl = document.getElementById("subtitle");
+    const timerPillEl = document.getElementById("timerPill");
+    const timerEl = document.getElementById("timer");
+    const movesEl = document.getElementById("moves");
+    const pairsEl = document.getElementById("pairs");
+    const totalPairsEl = document.getElementById("totalPairs");
+    const bestEl = document.getElementById("best");
+    const statusMsgEl = document.getElementById("statusMsg");
+    const secretEl = document.getElementById("secret");
+    document.getElementById("secretText").textContent = SECRET_MESSAGE;
+
+    let currentDiff = "medium";
+    let first = null;
+    let second = null;
+    let busy = false;
+    let gameOver = false;
+    let moves = 0;
+    let matched = 0;
+    let timeLeft = DIFFICULTIES[currentDiff].time;
+    let timerInterval = null;
+    let timerStarted = false;
+
+    function showBest() {
+      const b = lsGet("memoryBest_" + currentDiff, null);
+      bestEl.textContent = b ? b + " moves" : "--";
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function stopTimer() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      timerStarted = false;
+    }
+
+    function startTimer() {
+      if (timerStarted) return;
+      timerStarted = true;
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = timeLeft;
+
+        if (timeLeft <= 10) {
+          timerPillEl.classList.add("warning");
+        }
+
+        if (timeLeft <= 0) {
+          lose();
+        }
+      }, 1000);
+    }
+
+    function buildBoard() {
+      stopTimer();
+      const config = DIFFICULTIES[currentDiff];
+
+      gridEl.innerHTML = "";
+      gridEl.style.gridTemplateColumns = `repeat(${config.cols}, minmax(0, 1fr))`;
+
+      first = second = null;
+      busy = false;
+      gameOver = false;
+      moves = 0;
+      matched = 0;
+      timeLeft = config.time;
+
+      subtitleEl.textContent = `Find all ${config.pairs} pairs in ${config.time}s to unlock a secret message.`;
+      timerEl.textContent = timeLeft;
+      timerPillEl.classList.remove("warning");
+      movesEl.textContent = 0;
+      pairsEl.textContent = 0;
+      totalPairsEl.textContent = config.pairs;
+      statusMsgEl.classList.add("hidden");
+      statusMsgEl.textContent = "";
+      showBest();
+
+      if (lsGet("memoryUnlocked", "false") === "true") secretEl.classList.remove("hidden");
+      else secretEl.classList.add("hidden");
+
+      const deck = shuffle(config.emojis.concat(config.emojis));
+      deck.forEach(emoji => {
+        const card = document.createElement("button");
+        card.className = "mem-card";
+        card.type = "button";
+        card.dataset.emoji = emoji;
+        card.setAttribute("aria-label", "Memory card");
+        card.innerHTML =
+          '<div class="mem-inner">' +
+            '<div class="mem-face mem-front">💗</div>' +
+            '<div class="mem-face mem-back">' + emoji + '</div>' +
+          '</div>';
+        card.addEventListener("click", () => flip(card));
+        gridEl.appendChild(card);
+      });
+    }
+
+    function flip(card) {
+      if (busy || gameOver) return;
+      if (card.classList.contains("flipped") || card.classList.contains("matched")) return;
+
+      // Start countdown on the player's very first flip
+      if (!timerStarted) startTimer();
+
+      card.classList.add("flipped");
+
+      if (!first) {
+        first = card;
+        return;
+      }
+
+      second = card;
+      busy = true;
+      moves++;
+      movesEl.textContent = moves;
+
+      if (first.dataset.emoji === second.dataset.emoji) {
+        first.classList.add("matched");
+        second.classList.add("matched");
+        matched++;
+        pairsEl.textContent = matched;
+        first = second = null;
+        busy = false;
+        if (matched === DIFFICULTIES[currentDiff].pairs) win();
+      } else {
+        setTimeout(() => {
+          if (first) first.classList.remove("flipped");
+          if (second) second.classList.remove("flipped");
+          first = second = null;
+          busy = false;
+        }, 750);
+      }
+    }
+
+    function win() {
+      stopTimer();
+      gameOver = true;
+      timerPillEl.classList.remove("warning");
+
+      const bestKey = "memoryBest_" + currentDiff;
+      const prev = parseInt(lsGet(bestKey, "0"), 10) || 0;
+      if (prev === 0 || moves < prev) lsSet(bestKey, String(moves));
+      lsSet("memoryUnlocked", "true");
+      showBest();
+
+      setTimeout(() => {
+        secretEl.classList.remove("hidden");
+        secretEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 450);
+    }
+
+    function lose() {
+      stopTimer();
+      gameOver = true;
+      busy = true;
+      timerPillEl.classList.remove("warning");
+      statusMsgEl.textContent = "⏰ Time's up! Hit Restart to try again.";
+      statusMsgEl.classList.remove("hidden");
+    }
+
+    // Difficulty button listeners
+    document.querySelectorAll(".diff-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const selected = btn.dataset.diff;
+        if (selected === currentDiff && timerStarted === false && moves === 0) return;
+
+        currentDiff = selected;
+        document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        buildBoard();
+      });
+    });
+
+    document.getElementById("restartBtn").addEventListener("click", buildBoard);
+
+    buildBoard();
+  </script>
+</body>
+</html>

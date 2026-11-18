@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Catch the Hearts 💗</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    /* Overlay Pop-up Modal (matches Memory Match & index.html) */
+    .game-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 10, 25, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 999;
+      animation: fadeIn 0.25s ease;
+    }
+    .game-modal.hidden {
+      display: none;
+    }
+    .game-modal-card {
+      background: rgba(255, 255, 255, 0.96);
+      color: #2b1d2e;
+      max-width: 400px;
+      width: 100%;
+      padding: 28px 24px;
+      border-radius: 22px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      animation: popUp 0.28s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    .game-modal-card.win-theme {
+      border: 2px solid #ff758f;
+    }
+    .game-modal-card.lose-theme {
+      border: 2px solid #adb5bd;
+    }
+    .game-modal-card h2 {
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+    .game-modal-card p {
+      line-height: 1.55;
+      margin-bottom: 18px;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes popUp {
+      from { opacity: 0; transform: scale(0.85) translateY(12px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a class="btn small back-btn" href="../index.html">← Back to Arcade</a>
+
+    <div class="glass">
+      <h1>Catch the Hearts 💗</h1>
+      <p class="subtitle">Pink = 1 pt · Gold = 3 pts · Don't drop 3 hearts! Reach 30 to unlock a secret.</p>
+
+      <div class="stats">
+        <div class="pill">Lives: <span id="lives">❤️❤️❤️</span></div>
+        <div class="pill">Score: <span id="score">0</span> / 30</div>
+        <div class="pill">Best: <span id="best">0</span></div>
+      </div>
+
+      <canvas id="gameCanvas" width="400" height="560"></canvas>
+
+      <div class="center" style="margin-top:14px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn" id="startBtn">Play 💖</button>
+        <button class="btn hidden" id="viewSecretBtn">View Secret 💖</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pop-up Modal Over the Game (Win & Lose) -->
+  <div class="game-modal hidden" id="gameModal">
+    <div class="game-modal-card" id="modalCard">
+      <h2 id="modalTitle"></h2>
+      <p id="modalText"></p>
+      <div class="modal-actions">
+        <button class="btn" id="modalPlayAgainBtn">Play Again 💖</button>
+        <button class="btn small" id="modalCloseBtn">Close 💕</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== CUSTOMIZE ===== */
+    const SECRET_MESSAGE = "You caught my heart a long time ago, and I'm never asking for it back. I love you infinitly. 💖";
+    const WIN_SCORE = 30;
+    const MAX_LIVES = 3;
+    /* ===================== */
+
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+
+    const livesEl = document.getElementById("lives");
+    const scoreEl = document.getElementById("score");
+    const bestEl = document.getElementById("best");
+    const startBtn = document.getElementById("startBtn");
+    const viewSecretBtn = document.getElementById("viewSecretBtn");
+
+    // Modal elements
+    const gameModal = document.getElementById("gameModal");
+    const modalCard = document.getElementById("modalCard");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalText = document.getElementById("modalText");
+    const modalPlayAgainBtn = document.getElementById("modalPlayAgainBtn");
+    const modalCloseBtn = document.getElementById("modalCloseBtn");
+
+    function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+    let best = parseInt(lsGet("heartsBest", "0"), 10) || 0;
+    bestEl.textContent = best;
+    if (lsGet("heartsUnlocked", "false") === "true") {
+      viewSecretBtn.classList.remove("hidden");
+    }
+
+    const basket = { w: 90, h: 36, x: W / 2 - 45, y: H - 50, speed: 7 };
+    let hearts = [];
+    let score = 0;
+    let lives = MAX_LIVES;
+    let running = false;
+    let spawnTimer = 0;
+    let lastTime = 0;
+    let missFlash = 0;
+    let keys = { left: false, right: false };
+    let ended = false;
+
+    function showModal({ title, text, theme, showPlayAgain = true }) {
+      modalTitle.textContent = title;
+      modalText.textContent = text;
+      modalCard.classList.remove("win-theme", "lose-theme");
+      if (theme) modalCard.classList.add(theme);
+      modalPlayAgainBtn.style.display = showPlayAgain ? "inline-block" : "none";
+      gameModal.classList.remove("hidden");
+    }
+
+    function hideModal() {
+      gameModal.classList.add("hidden");
+    }
+
+    function updateLivesDisplay() {
+      const full = "❤️".repeat(Math.max(0, lives));
+      const empty = "🤍".repeat(Math.max(0, MAX_LIVES - lives));
+      livesEl.textContent = full + empty;
+    }
+
+    function drawHeart(x, y, size, color) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.beginPath();
+      const s = size / 2;
+      ctx.moveTo(0, s * 0.6);
+      ctx.bezierCurveTo(-s * 1.6, -s * 0.4, -s * 0.7, -s * 1.4, 0, -s * 0.5);
+      ctx.bezierCurveTo(s * 0.7, -s * 1.4, s * 1.6, -s * 0.4, 0, s * 0.6);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBasket() {
+      ctx.save();
+      ctx.fillStyle = "#8a1c4a";
+      ctx.beginPath();
+      ctx.moveTo(basket.x, basket.y);
+      ctx.lineTo(basket.x + basket.w, basket.y);
+      ctx.lineTo(basket.x + basket.w - 12, basket.y + basket.h);
+      ctx.lineTo(basket.x + 12, basket.y + basket.h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ff7aa8";
+      ctx.fillRect(basket.x - 3, basket.y - 5, basket.w + 6, 8);
+      ctx.restore();
+    }
+
+    function spawnHeart() {
+      const golden = Math.random() < 0.2;
+      hearts.push({
+        x: 20 + Math.random() * (W - 40),
+        y: -20,
+        size: golden ? 30 : 28,
+        speed: 2 + Math.random() * 2 + score / 40,
+        golden: golden
+      });
+    }
+
+    function update(dt) {
+      if (keys.left) basket.x -= basket.speed * dt;
+      if (keys.right) basket.x += basket.speed * dt;
+      basket.x = Math.max(0, Math.min(W - basket.w, basket.x));
+
+      if (missFlash > 0) missFlash = Math.max(0, missFlash - 0.06 * dt);
+
+      spawnTimer += dt;
+      if (spawnTimer > 28) { spawnHeart(); spawnTimer = 0; }
+
+      for (let i = hearts.length - 1; i >= 0; i--) {
+        const h = hearts[i];
+        h.y += h.speed * dt;
+
+        const caught = h.y + h.size / 2 >= basket.y &&
+                       h.y <= basket.y + basket.h &&
+                       h.x >= basket.x - 6 && h.x <= basket.x + basket.w + 6;
+        if (caught) {
+          score += h.golden ? 3 : 1;
+          scoreEl.textContent = score;
+          hearts.splice(i, 1);
+          checkWin();
+        } else if (h.y > H + 15) {
+          hearts.splice(i, 1);
+          loseLife();
+          if (ended) return;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      // Subtle red flash when a heart drops
+      if (missFlash > 0) {
+        ctx.fillStyle = `rgba(255, 77, 109, ${missFlash * 0.28})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      hearts.forEach(h => drawHeart(h.x, h.y, h.size, h.golden ? "#ffc300" : "#ff4d88"));
+      drawBasket();
+    }
+
+    function loop(ts) {
+      if (!running) return;
+      const dt = Math.min(2.5, (ts - lastTime) / 16.67 || 1);
+      lastTime = ts;
+      update(dt);
+      draw();
+      if (running) requestAnimationFrame(loop);
+    }
+
+    function loseLife() {
+      if (ended) return;
+      lives--;
+      missFlash = 1;
+      updateLivesDisplay();
+
+      if (lives <= 0) {
+        ended = true;
+        running = false;
+        draw();
+        startBtn.textContent = "Play Again 💖";
+        startBtn.classList.remove("hidden");
+
+        setTimeout(() => {
+          showModal({
+            title: "Out of Hearts 💔",
+            text: `You dropped 3 hearts and finished with ${score} / ${WIN_SCORE} points. Try again to unlock the secret!`,
+            theme: "lose-theme",
+            showPlayAgain: true
+          });
+        }, 250);
+      }
+    }
+
+    function checkWin() {
+      if (score > best) {
+        best = score;
+        bestEl.textContent = best;
+        lsSet("heartsBest", String(best));
+      }
+      if (score >= WIN_SCORE && !ended) {
+        ended = true;
+        running = false;
+        lsSet("heartsUnlocked", "true");
+        viewSecretBtn.classList.remove("hidden");
+        startBtn.textContent = "Play Again 💖";
+        startBtn.classList.remove("hidden");
+        draw();
+
+        setTimeout(() => {
+          showModal({
+            title: "💌 Secret Unlocked!",
+            text: SECRET_MESSAGE,
+            theme: "win-theme",
+            showPlayAgain: true
+          });
+        }, 250);
+      }
+    }
+
+    function startGame() {
+      hideModal();
+      score = 0;
+      lives = MAX_LIVES;
+      missFlash = 0;
+      scoreEl.textContent = 0;
+      updateLivesDisplay();
+      hearts = [];
+      spawnTimer = 0;
+      ended = false;
+      basket.x = W / 2 - basket.w / 2;
+      running = true;
+      startBtn.classList.add("hidden");
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+
+    startBtn.addEventListener("click", startGame);
+    modalPlayAgainBtn.addEventListener("click", startGame);
+    modalCloseBtn.addEventListener("click", hideModal);
+    gameModal.addEventListener("click", e => { if (e.target === gameModal) hideModal(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") hideModal(); });
+
+    viewSecretBtn.addEventListener("click", () => {
+      showModal({
+        title: "💌 Secret Unlocked!",
+        text: SECRET_MESSAGE,
+        theme: "win-theme",
+        showPlayAgain: false
+      });
+    });
+
+    // Keyboard
+    window.addEventListener("keydown", e => {
+      if (e.key === "ArrowLeft") { keys.left = true; e.preventDefault(); }
+      if (e.key === "ArrowRight") { keys.right = true; e.preventDefault(); }
+    });
+    window.addEventListener("keyup", e => {
+      if (e.key === "ArrowLeft") keys.left = false;
+      if (e.key === "ArrowRight") keys.right = false;
+    });
+
+    // Mouse + touch
+    function moveBasketTo(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const scale = W / rect.width;
+      basket.x = (clientX - rect.left) * scale - basket.w / 2;
+      basket.x = Math.max(0, Math.min(W - basket.w, basket.x));
+    }
+    canvas.addEventListener("mousemove", e => { if (running) moveBasketTo(e.clientX); });
+    canvas.addEventListener("touchstart", e => { if (running) { moveBasketTo(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+    canvas.addEventListener("touchmove", e => { if (running) { moveBasketTo(e.touches[0].clientX); e.preventDefault(); } }, { passive: false });
+
+    // Initial idle frame
+    updateLivesDisplay();
+    draw();
+  </script>
+</body>
+</html>
